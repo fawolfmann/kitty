@@ -730,6 +730,8 @@ class TabBar:
         opts = get_options()
         blank_rects: list[Border] = []
         bg = BorderColor.tab_bar_margin_color if opts.tab_bar_margin_color is not None else BorderColor.default_bg
+        if self.is_vertical and opts.tab_bar_margin_color is None and opts.tab_bar_background:
+            bg = BorderColor.tab_bar_bg
         if opts.tab_bar_margin_height:
             if self.is_vertical:
                 if opts.tab_bar_edge == LEFT_EDGE:
