@@ -16,6 +16,9 @@ from .constants import config_dir
 from .fast_data_types import (
     BOTTOM_EDGE,
     DECAWM,
+    LEFT_EDGE,
+    RIGHT_EDGE,
+    TOP_EDGE,
     Color,
     Region,
     Screen,
@@ -497,6 +500,155 @@ def draw_tab_with_powerline(
     return end
 
 
+def truncate_to_visible_width(title: str, width: int) -> str:
+    # Truncate a (possibly SGR-containing) title to `width` visible cells,
+    # appending an ellipsis if it was cut. SGR escape sequences are preserved
+    # and do not count towards the visible width.
+    if width <= 0:
+        return ''
+    pieces = sgr_sanitizer_pat(for_splitting=True).split(title) if '\x1b' in title else [title]
+
+    def is_sgr(x: str) -> bool:
+        return x.startswith('\x1b') and x.endswith('m')
+
+    total = sum(max(0, wcswidth(p)) for p in pieces if not is_sgr(p))
+    if total <= width:
+        return title
+    out: list[str] = []
+    used = 0
+    for piece in pieces:
+        if is_sgr(piece):
+            out.append(piece)
+            continue
+        for ch in piece:
+            w = max(0, wcswidth(ch))
+            if used + w > width - 1:
+                return ''.join(out) + '…'
+            out.append(ch)
+            used += w
+    return ''.join(out) + '…'
+
+
+# Vertical (left/right sidebar) tab rendering. Each tab is a single full-width
+# row; styles differ in the row background and the content-facing edge decoration.
+
+DrawTabVerticalFunc = Callable[[DrawData, Screen, TabBarData, int, int, bool, ExtraData], None]
+
+
+def _vertical_row_bg(draw_data: DrawData, tab: TabBarData, chips: bool) -> int:
+    # With chips=False (fade), inactive tabs blend into the panel; with chips=True
+    # they use their own inactive_tab_background. The active tab always uses its bg.
+    if tab.is_active or chips:
+        return as_rgb(draw_data.tab_bg(tab))
+    return as_rgb(color_as_int(draw_data.default_bg))
+
+
+def _vertical_fill_and_title(
+    draw_data: DrawData, screen: Screen, tab: TabBarData, max_width: int, index: int,
+    text_left: int = 0, text_width: int | None = None
+) -> None:
+    # Fill the whole row with the current background, then draw the (truncated)
+    # title within [text_left, text_left + text_width) with a one-cell left pad.
+    if text_width is None:
+        text_width = max_width
+    screen.cursor.x = 0
+    screen.draw(' ' * max_width)
+    pad = 1 if text_width > 1 else 0
+    screen.cursor.x = text_left + pad
+    title = apply_title_template(draw_data, tab, index, max_width)
+    limit = max(0, text_width - 1)
+    if draw_data.max_tab_title_length > 0:
+        limit = min(limit, draw_data.max_tab_title_length)
+    title = truncate_to_visible_width(title, limit)
+    draw_attributed_string(title, screen)
+
+
+def draw_tab_vertical_fade(
+    draw_data: DrawData, screen: Screen, tab: TabBarData,
+    max_width: int, index: int, is_last: bool, extra_data: ExtraData
+) -> None:
+    # Inactive tabs blend into the sidebar panel; only the active tab is highlighted.
+    screen.cursor.bg = _vertical_row_bg(draw_data, tab, chips=False)
+    _vertical_fill_and_title(draw_data, screen, tab, max_width, index)
+
+
+def draw_tab_vertical_separator(
+    draw_data: DrawData, screen: Screen, tab: TabBarData,
+    max_width: int, index: int, is_last: bool, extra_data: ExtraData
+) -> None:
+    # Each tab is a distinct chip using its own (in)active background colour.
+    screen.cursor.bg = _vertical_row_bg(draw_data, tab, chips=True)
+    _vertical_fill_and_title(draw_data, screen, tab, max_width, index)
+
+
+# Content-facing edge caps so a tab "points" towards the window content. Indexed
+# as (left_bar_cap, right_bar_cap) since the content is on opposite sides.
+vertical_powerline_caps: dict[str, tuple[str, str]] = {
+    'angled': ('', ''),
+    'round': ('', ''),
+    'slanted': ('', ''),
+}
+vertical_slant_caps = ('', '')
+
+
+def _draw_tab_vertical_capped(
+    draw_data: DrawData, screen: Screen, tab: TabBarData,
+    max_width: int, index: int, caps: tuple[str, str]
+) -> None:
+    row_bg = _vertical_row_bg(draw_data, tab, chips=True)
+    screen.cursor.bg = row_bg
+    if draw_data.tab_bar_edge == 'right':  # content to the left -> cap at column 0
+        _vertical_fill_and_title(draw_data, screen, tab, max_width, index, text_left=1, text_width=max_width - 1)
+        cap_x, cap = 0, caps[1]
+    else:  # content to the right -> cap at the last column
+        _vertical_fill_and_title(draw_data, screen, tab, max_width, index, text_left=0, text_width=max_width - 1)
+        cap_x, cap = max_width - 1, caps[0]
+    screen.cursor.x = cap_x
+    screen.cursor.fg = row_bg  # the cap glyph is drawn in the tab colour ...
+    screen.cursor.bg = as_rgb(color_as_int(draw_data.default_bg))  # ... against the panel
+    screen.draw(cap)
+
+
+def draw_tab_vertical_powerline(
+    draw_data: DrawData, screen: Screen, tab: TabBarData,
+    max_width: int, index: int, is_last: bool, extra_data: ExtraData
+) -> None:
+    caps = vertical_powerline_caps.get(draw_data.powerline_style, vertical_powerline_caps['angled'])
+    _draw_tab_vertical_capped(draw_data, screen, tab, max_width, index, caps)
+
+
+def draw_tab_vertical_slant(
+    draw_data: DrawData, screen: Screen, tab: TabBarData,
+    max_width: int, index: int, is_last: bool, extra_data: ExtraData
+) -> None:
+    _draw_tab_vertical_capped(draw_data, screen, tab, max_width, index, vertical_slant_caps)
+
+
+@run_once
+def load_custom_draw_tab_vertical() -> DrawTabVerticalFunc:
+    # Users can define draw_tab_vertical(draw_data, screen, tab, max_width, index,
+    # is_last, extra_data) in tab_bar.py in the kitty config dir. Falls back to the
+    # fade style (the horizontal custom draw_tab is not reused as it assumes a
+    # single horizontal row of cells).
+    m = load_custom_draw_tab_module()
+    func = m.get('draw_tab_vertical')
+    if func is None:
+        return draw_tab_vertical_fade
+
+    @wraps(func)
+    def draw_tab_vertical(
+        draw_data: DrawData, screen: Screen, tab: TabBarData,
+        max_width: int, index: int, is_last: bool, extra_data: ExtraData
+    ) -> None:
+        try:
+            func(draw_data, screen, tab, max_width, index, is_last, extra_data)
+        except Exception as e:
+            log_error(f'Custom draw_tab_vertical function failed with error: {e}')
+            draw_tab_vertical_fade(draw_data, screen, tab, max_width, index, is_last, extra_data)
+
+    return draw_tab_vertical
+
+
 @run_once
 def load_custom_draw_tab_module() -> dict[str, Any]:
     import runpy
@@ -535,6 +687,7 @@ def load_custom_draw_tab() -> DrawTabFunc:
 
 def clear_caches() -> None:
     load_custom_draw_tab.clear_cached()
+    load_custom_draw_tab_vertical.clear_cached()
     load_custom_draw_tab_module.clear_cached()
 
 
@@ -584,10 +737,11 @@ class TabBar:
     def apply_options(self) -> None:
         opts = get_options()
         self.dirty = True
+        self.is_vertical = opts.tab_bar_edge in (LEFT_EDGE, RIGHT_EDGE)
         self.margin_width = pt_to_px(opts.tab_bar_margin_width, self.os_window_id)
-        self.cell_width, cell_height = cell_size_for_window(self.os_window_id)
+        self.cell_width, self.cell_height = cell_size_for_window(self.os_window_id)
         if not hasattr(self, 'screen'):
-            self.screen = s = Screen(None, 1, 10, 0, self.cell_width, cell_height)
+            self.screen = s = Screen(None, 1, 10, 0, self.cell_width, self.cell_height)
         else:
             s = self.screen
         s.color_profile.default_fg = opts.inactive_tab_foreground
@@ -606,6 +760,9 @@ class TabBar:
 
         self.active_bg = as_rgb(color_as_int(opts.active_tab_background))
         self.active_fg = as_rgb(color_as_int(opts.active_tab_foreground))
+        edge_name: EdgeLiteral = {
+            LEFT_EDGE: 'left', RIGHT_EDGE: 'right', TOP_EDGE: 'top', BOTTOM_EDGE: 'bottom',
+        }.get(opts.tab_bar_edge, 'bottom')
         self.draw_data = DrawData(
             self.leading_spaces, self.sep, self.trailing_spaces, opts.bell_on_tab,
             opts.tab_fade, opts.active_tab_foreground, opts.active_tab_background,
@@ -614,7 +771,7 @@ class TabBar:
             opts.active_tab_title_template,
             opts.tab_activity_symbol,
             opts.tab_powerline_style,
-            'bottom' if opts.tab_bar_edge == BOTTOM_EDGE else 'top',
+            edge_name,
             opts.tab_title_max_length, self.os_window_id,
         )
         ts = opts.tab_bar_style
@@ -628,8 +785,23 @@ class TabBar:
             self.draw_func = load_custom_draw_tab()
         else:
             self.draw_func = draw_tab_with_fade
-        if opts.tab_bar_align == 'center':
-            self.align: Callable[[], None] = partial(self.align_with_factor, 2)
+        if ts == 'separator':
+            self.draw_func_vertical: DrawTabVerticalFunc = draw_tab_vertical_separator
+        elif ts == 'powerline':
+            self.draw_func_vertical = draw_tab_vertical_powerline
+        elif ts == 'slant':
+            self.draw_func_vertical = draw_tab_vertical_slant
+        elif ts == 'custom':
+            self.draw_func_vertical = load_custom_draw_tab_vertical()
+        else:
+            self.draw_func_vertical = draw_tab_vertical_fade
+        self.tab_bar_align = opts.tab_bar_align
+        if self.is_vertical:
+            # For vertical bars, alignment (top/center/bottom) is applied per-row
+            # in update_vertical, so the screen-shifting align is a no-op here.
+            self.align: Callable[[], None] = lambda: None
+        elif opts.tab_bar_align == 'center':
+            self.align = partial(self.align_with_factor, 2)
         elif opts.tab_bar_align == 'right':
             self.align = self.align_with_factor
         else:
@@ -685,6 +857,27 @@ class TabBar:
         opts = get_options()
         blank_rects: list[Border] = []
         bg = BorderColor.tab_bar_margin_color if opts.tab_bar_margin_color is not None else BorderColor.default_bg
+        if self.is_vertical:
+            # Fill the whole sidebar band (margins + centering remainder) around
+            # the cell grid with the tab bar background, so the sidebar reads as
+            # one uniform panel all the way to the bottom edge. tab_bar_margin_color
+            # is not used for vertical bars (the panel is intentionally uniform).
+            bg = BorderColor.tab_bar_bg if opts.tab_bar_background else BorderColor.default_bg
+            g = self.window_geometry
+            if opts.tab_bar_edge == LEFT_EDGE:
+                band_left, band_right = 0, central.left
+            else:
+                band_left, band_right = central.right, vw
+            if g.top > 0:
+                blank_rects.append(Border(band_left, 0, band_right, g.top, bg))
+            if g.bottom < vh:
+                blank_rects.append(Border(band_left, g.bottom, band_right, vh, bg))
+            if g.left > band_left:
+                blank_rects.append(Border(band_left, g.top, g.left, g.bottom, bg))
+            if g.right < band_right:
+                blank_rects.append(Border(g.right, g.top, band_right, g.bottom, bg))
+            self.blank_rects = tuple(blank_rects)
+            return
         if opts.tab_bar_margin_height:
             if opts.tab_bar_edge == BOTTOM_EDGE:
                 if opts.tab_bar_margin_height.outer:
@@ -710,10 +903,28 @@ class TabBar:
 
     def layout(self) -> None:
         central, tab_bar, vw, vh, cell_width, cell_height = viewport_for_window(self.os_window_id)
-        if tab_bar.width < 2:
+        if tab_bar.width < 2 or tab_bar.height < 2:
             return
         self.cell_width = cell_width
+        self.cell_height = cell_height
         s = self.screen
+        if self.is_vertical:
+            # tab_bar_margin_width acts as top/bottom padding for a vertical sidebar.
+            mw = self.margin_width
+            avail_height = max(cell_height, tab_bar.height - 2 * mw)
+            ncols = max(2, tab_bar.width // cell_width)
+            nlines = max(1, avail_height // cell_height)
+            s.resize(nlines, ncols)
+            s.reset_mode(DECAWM)
+            cell_area_width = ncols * cell_width
+            cell_area_height = nlines * cell_height
+            top = tab_bar.top + mw + max(0, avail_height - cell_area_height) // 2
+            self.laid_out_once = True
+            self.window_geometry = g = WindowGeometry(
+                tab_bar.left, top, tab_bar.left + cell_area_width, top + cell_area_height, s.columns, s.lines)
+            self.update_blank_rects(central, tab_bar, vw, vh)
+            set_tab_bar_render_data(self.os_window_id, self.screen, *g[:4])
+            return
         available_width = tab_bar.width - 2 * self.margin_width
         ncells = max(4, available_width // cell_width)
         s.resize(1, ncells)
@@ -730,6 +941,9 @@ class TabBar:
 
     def update(self, data: Sequence[TabBarData]) -> None:
         if not self.laid_out_once:
+            return
+        if self.is_vertical:
+            self.update_vertical(data)
             return
         s = self.screen
         last_tab = data[-1] if data else None
@@ -797,6 +1011,52 @@ class TabBar:
         self.align()
         update_tab_bar_edge_colors(self.os_window_id)
 
+    def update_vertical(self, data: Sequence[TabBarData]) -> None:
+        s = self.screen
+        self.last_laid_out_tabs = data
+        nlines = s.lines
+        ncols = s.columns
+        n = len(data)
+        # Window the visible tabs so the active one always stays on screen.
+        active_idx = 0
+        for i, t in enumerate(data):
+            if t.is_active:
+                active_idx = i
+                break
+        start = 0
+        row_offset = 0
+        if n > nlines:
+            # Too many tabs to fit: scroll so the active tab stays visible.
+            start = min(max(0, active_idx - nlines // 2), n - nlines)
+            visible = data[start:start + nlines]
+        else:
+            # All tabs fit: apply vertical alignment (top/center/bottom) via tab_bar_align.
+            visible = list(data)
+            if self.tab_bar_align == 'center':
+                row_offset = (nlines - n) // 2
+            elif self.tab_bar_align == 'right':
+                row_offset = nlines - n
+        last_tab = data[-1] if data else None
+        ed = ExtraData()
+        s.cursor.x = 0
+        s.cursor.y = 0
+        s.erase_in_display(2, False)
+        cr: list[TabExtent] = []
+        for i, t in enumerate(visible):
+            data_idx = start + i
+            row = row_offset + i
+            s.cursor.x = 0
+            s.cursor.y = row
+            s.cursor.fg = as_rgb(self.draw_data.tab_fg(t))
+            s.cursor.bold, s.cursor.italic = self.active_font_style if t.is_active else self.inactive_font_style
+            ed.prev_tab = data[data_idx - 1] if data_idx > 0 else None
+            ed.next_tab = data[data_idx + 1] if data_idx + 1 < n else None
+            self.draw_func_vertical(self.draw_data, s, t, ncols, data_idx + 1, t is last_tab, ed)
+            s.cursor.bg = s.cursor.fg = 0
+            cr.append(TabExtent(tab_id=t.tab_id, cell_range=CellRange(row, row)))
+        self.tab_extents = cr
+        update_tab_bar_edge_colors(self.os_window_id)
+
     def align_with_factor(self, factor: int = 1) -> None:
         if not self.tab_extents:
             return
@@ -811,8 +1071,14 @@ class TabBar:
         self.screen.reset_callbacks()
         del self.screen
 
-    def tab_id_at(self, x: int) -> int:
+    def tab_id_at(self, x: int, y: int = 0) -> int:
         if self.laid_out_once:
+            if self.is_vertical:
+                row = (y - self.window_geometry.top) // self.cell_height
+                for te in self.tab_extents:
+                    if te.cell_range.start <= row <= te.cell_range.end:
+                        return te.tab_id
+                return 0
             x = (x - self.window_geometry.left) // self.cell_width
             for te in self.tab_extents:
                 if te.cell_range.start <= x <= te.cell_range.end:

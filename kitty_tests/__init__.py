@@ -17,7 +17,7 @@ from functools import wraps
 from pty import CHILD, STDIN_FILENO, STDOUT_FILENO, fork
 from unittest import TestCase
 
-from kitty.config import finalize_keys, finalize_mouse_mappings
+from kitty.config import finalize_keys, finalize_mouse_mappings, finalize_tab_bar
 from kitty.fast_data_types import TEXT_SIZE_CODE, Cursor, HistoryBuf, LineBuf, Screen, get_options, monotonic, set_options
 from kitty.options.parse import merge_result_dicts
 from kitty.options.types import Options, defaults
@@ -281,6 +281,7 @@ class BaseTest(TestCase):
         options = Options(merge_result_dicts(defaults._asdict(), final_options))
         finalize_keys(options, {})
         finalize_mouse_mappings(options, {})
+        finalize_tab_bar(options)
         set_options(options)
         return options
 

@@ -173,6 +173,16 @@ consumption to do the same tasks.
 Detailed list of changes
 -------------------------------------
 
+To be released
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Add support for showing the tab bar as a vertical sidebar on the :code:`left`
+  or :code:`right` edge of the OS Window, controlled by :opt:`tab_bar_edge` and
+  the new :opt:`tab_bar_width` option. All :opt:`tab_bar_style` variants are
+  adapted for vertical bars and the sidebar gets a distinct panel background by
+  default (overridable via :opt:`tab_bar_background`).
+
+
 0.47.2 [2026-06-07]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -998,7 +998,9 @@ mouse_region(bool detect_borders, bool detect_title_bar) {
     if (!in_central) {
         if (
                 (tab_bar.top < central.top && w->mouse_y < central.top) ||
-                (tab_bar.bottom > central.bottom && w->mouse_y >= central.bottom)
+                (tab_bar.bottom > central.bottom && w->mouse_y >= central.bottom) ||
+                (tab_bar.left < central.left && w->mouse_x < central.left) ||
+                (tab_bar.right > central.right && w->mouse_x >= central.right)
            ) ans.in_tab_bar = true;
     }
     if (in_central && w->num_tabs > 0) {
