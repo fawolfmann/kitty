@@ -1616,12 +1616,29 @@ agr('tabbar', 'Tab bar')
 
 opt('tab_bar_edge', 'bottom',
     option_type='tab_bar_edge', ctype='int',
-    long_text='The edge to show the tab bar on, :code:`top` or :code:`bottom`.'
+    long_text='''
+The edge to show the tab bar on, one of :code:`top`, :code:`bottom`, :code:`left`
+or :code:`right`. When set to :code:`left` or :code:`right` the tab bar is shown
+as a vertical sidebar whose width is controlled by :opt:`tab_bar_width`.
+'''
+    )
+
+opt('tab_bar_width', '200.0',
+    option_type='positive_float', ctype='float',
+    long_text='''
+The width of the tab bar (in pts). Only used when :opt:`tab_bar_edge` is
+:code:`left` or :code:`right` (i.e. a vertical sidebar). Ignored for the
+:code:`top` and :code:`bottom` edges.
+'''
     )
 
 opt('tab_bar_margin_width', '0.0',
     option_type='positive_float',
-    long_text='The margin to the left and right of the tab bar (in pts).'
+    long_text='''
+The margin to the left and right of the tab bar (in pts). For a vertical tab bar
+(:opt:`tab_bar_edge` set to :code:`left` or :code:`right`) this is instead the
+padding above and below the stack of tabs.
+'''
     )
 
 opt('tab_bar_margin_height', '0.0 0.0',
@@ -1660,6 +1677,15 @@ The tab bar style, can be one of:
     The tab bar is hidden. If you use this, you might want to create
     a mapping for the :ac:`select_tab` action which presents you with a list of
     tabs and allows for easy switching to a tab.
+
+For a vertical tab bar (:opt:`tab_bar_edge` set to :code:`left` or :code:`right`)
+each tab is drawn on its own row and the styles are adapted to a sidebar:
+:code:`fade` highlights only the active tab against the panel, :code:`separator`
+draws every tab as a coloured chip (using :opt:`inactive_tab_background`), and
+:code:`powerline`/:code:`slant` add a content-facing edge cap to each tab. For
+:code:`custom`, define a :code:`draw_tab_vertical(draw_data, screen, tab,
+max_width, index, is_last, extra_data)` function in :file:`tab_bar.py` (the
+horizontal :code:`draw_tab` is not used for vertical bars).
 '''
     )
 
@@ -1679,7 +1705,10 @@ opt('tab_bar_align', 'left',
     choices=('left', 'center', 'right'),
     long_text='''
 The horizontal alignment of the tab bar, can be one of: :code:`left`,
-:code:`center`, :code:`right`.
+:code:`center`, :code:`right`. For a vertical tab bar (:opt:`tab_bar_edge` set to
+:code:`left` or :code:`right`) this controls vertical alignment instead:
+:code:`left` aligns the tabs to the top, :code:`center` to the middle and
+:code:`right` to the bottom.
 '''
     )
 
@@ -1854,7 +1883,12 @@ opt('tab_bar_background', 'none',
     option_type='to_color_or_none', ctype='color_or_none_as_int',
     long_text='''
 Background color for the tab bar. Defaults to using the terminal background
-color.
+color. When :opt:`tab_bar_edge` is :code:`left` or :code:`right` (a vertical
+sidebar) and this is left unset, a distinct panel color is derived automatically
+from the terminal background so the sidebar stands out from the window content;
+set this option to override it. For a vertical sidebar this is also the
+background used for inactive tabs (they blend into the panel, with only the
+active tab highlighted using :opt:`active_tab_background`).
 ''')
 
 opt('tab_bar_margin_color', 'none',

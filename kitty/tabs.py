@@ -1712,7 +1712,7 @@ class TabManager:  # {{{
         mouse_moved_left = x < self.tab_being_dropped.last_drop_move_x
         old_tab_ids = self.tab_being_dropped.tab_ids
         idx_under_mouse = -1
-        if (tab_id_under_mouse := self.tab_bar.tab_id_at(x)):
+        if (tab_id_under_mouse := self.tab_bar.tab_id_at(x, y)):
             with suppress(Exception):
                 idx_under_mouse = old_tab_ids.index(tab_id_under_mouse)
         if idx_under_mouse < 0:
@@ -1795,7 +1795,7 @@ class TabManager:  # {{{
                     self.recent_tab_bar_mouse_events.clear()
             return
 
-        tab_id_at_x = self.tab_bar.tab_id_at(int(x))
+        tab_id_at_x = self.tab_bar.tab_id_at(int(x), int(y))
         self.recent_tab_bar_mouse_events.add(button, modifiers, action, x, y, tab_id_at_x)
         if tab_id_at_x < 0:  # synthetic tab (e.g. "+" new-tab button)
             if self.recent_tab_bar_mouse_events.click_count(GLFW_MOUSE_BUTTON_LEFT) == 1:
@@ -1965,7 +1965,7 @@ class TabManager:  # {{{
         tab_bar = viewport_for_window(self.os_window_id)[1]
         if tab_bar.left <= x < tab_bar.right and tab_bar.top <= y < tab_bar.bottom:
             self._set_drag_target_window(0)
-            self._set_drag_target_tab(self.tab_bar.tab_id_at(x))
+            self._set_drag_target_tab(self.tab_bar.tab_id_at(x, y))
             return
         self._set_drag_target_tab(0)
         dest_window = self._find_window_at(x, y)
@@ -2020,7 +2020,7 @@ class TabManager:  # {{{
         # Case 1: Drop on tab bar → move to that tab
         in_tab_bar = tab_bar.left <= x < tab_bar.right and tab_bar.top <= y < tab_bar.bottom
         if in_tab_bar:
-            if (tab_id := self.tab_bar.tab_id_at(x)) and (dest_tab := self.tab_for_id(tab_id)):
+            if (tab_id := self.tab_bar.tab_id_at(x, y)) and (dest_tab := self.tab_for_id(tab_id)):
                 boss._move_window_to(w, target_tab_id=dest_tab.id)
             else:
                 boss._move_window_to(w, target_tab_id='new')

@@ -696,24 +696,51 @@ os_window_regions(const OSWindow *os_window, Region *central, Region *tab_bar) {
     if (!OPT(tab_bar_hidden) && os_window->num_tabs && !os_window->has_too_few_tabs) {
         long margin_outer = pt_to_px_for_os_window(OPT(tab_bar_margin_height.outer), os_window);
         long margin_inner = pt_to_px_for_os_window(OPT(tab_bar_margin_height.inner), os_window);
-        central->left = 0; central->right = os_window->viewport_width;
-        unsigned tab_bar_height = os_window->fonts_data->fcm.cell_height + margin_inner + margin_outer;
+        const unsigned vw = os_window->viewport_width, vh = os_window->viewport_height;
+        const unsigned cell_height = os_window->fonts_data->fcm.cell_height;
         switch(OPT(tab_bar_edge)) {
-            case TOP_EDGE:
-                central->top = tab_bar_height;
-                central->bottom = os_window->viewport_height;
-                central->top = MIN(central->top, central->bottom);
+            case LEFT_EDGE:
+            case RIGHT_EDGE: {
+                // Vertical sidebar spanning the full height of the OS window.
+                central->top = 0; central->bottom = vh;
+                long bar_width = pt_to_px_for_os_window(OPT(tab_bar_width), os_window);
+                long total_width = bar_width + margin_inner + margin_outer;
+                if (OPT(tab_bar_edge) == LEFT_EDGE) {
+                    central->left = MIN((long)vw, total_width);
+                    central->right = vw;
+                    tab_bar->left = margin_outer;
+                } else {
+                    long right = (long)vw - total_width;
+                    central->left = 0;
+                    central->right = MAX(0, right);
+                    tab_bar->left = central->right + margin_inner;
+                }
+                tab_bar->top = 0; tab_bar->bottom = vh;
+                tab_bar->right = tab_bar->left + bar_width;
+                break;
+            }
+            case TOP_EDGE: {
+                unsigned tab_bar_height = cell_height + margin_inner + margin_outer;
+                central->left = 0; central->right = vw;
+                central->top = MIN((unsigned)tab_bar_height, vh);
+                central->bottom = vh;
+                tab_bar->left = central->left; tab_bar->right = central->right;
                 tab_bar->top = margin_outer;
+                tab_bar->bottom = tab_bar->top + cell_height;
                 break;
-            default:
+            }
+            default: {  // BOTTOM_EDGE
+                unsigned tab_bar_height = cell_height + margin_inner + margin_outer;
+                central->left = 0; central->right = vw;
                 central->top = 0;
-                long bottom = os_window->viewport_height - tab_bar_height;
+                long bottom = (long)vh - (long)tab_bar_height;
                 central->bottom = MAX(0, bottom);
+                tab_bar->left = central->left; tab_bar->right = central->right;
                 tab_bar->top = central->bottom + margin_inner;
+                tab_bar->bottom = tab_bar->top + cell_height;
                 break;
+            }
         }
-        tab_bar->left = central->left; tab_bar->right = central->right;
-        tab_bar->bottom = tab_bar->top + os_window->fonts_data->fcm.cell_height;
     } else {
         zero_at_ptr(tab_bar);
         central->left = 0; central->top = 0; central->right = os_window->viewport_width;

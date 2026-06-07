@@ -141,6 +141,17 @@ def finalize_mouse_mappings(opts: Options, accumulate_bad_lines: list[BadLine] |
     opts.mousemap = mousemap
 
 
+def finalize_tab_bar(opts: Options) -> None:
+    # A vertical (left/right) tab bar is a sidebar panel, so by default give it a
+    # background that is distinct from the window content. We derive it from the
+    # window background (blended slightly towards the foreground) so it adapts to
+    # the active theme. Users can override it by setting tab_bar_background.
+    from .fast_data_types import LEFT_EDGE, RIGHT_EDGE
+    if opts.tab_bar_background is None and opts.tab_bar_edge in (LEFT_EDGE, RIGHT_EDGE):
+        from .rgb import alpha_blend
+        opts.tab_bar_background = alpha_blend(opts.foreground, opts.background, 0.12)
+
+
 def parse_config(
     lines: Iterable[str],
     accumulate_bad_lines: list[BadLine] | None = None,
@@ -183,6 +194,7 @@ def load_config(*paths: str, overrides: Iterable[str] | None = None, accumulate_
     opts.alias_map.update(build_action_aliases(opts.action_alias))
     finalize_keys(opts, accumulate_bad_lines)
     finalize_mouse_mappings(opts, accumulate_bad_lines)
+    finalize_tab_bar(opts)
     # delete no longer needed definitions, replacing with empty placeholders
     opts.kitten_alias = {}
     opts.action_alias = {}
